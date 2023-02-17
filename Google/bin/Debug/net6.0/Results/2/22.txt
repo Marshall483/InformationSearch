@@ -1,0 +1,242 @@
+Application Service API | Matrix Specification specification &mdash; version v1.5 Foundation FAQs Blog Matrix Specification Client-Server API Server-Server API Application Service API Identity Service API Push Gateway API Room Versions Room Version 1 Room Version 2 Room Version 3 Room Version 4 Room Version 5 Room Version 6 Room Version 7 Room Version 8 Room Version 9 Room Version 10 Spec Change Proposals Appendices Changelog You're looking at an old version of this specification. Switch to the current stable release . Matrix Specification Application Service API Application Service API The Matrix client-server API and server-server APIs provide the means to
+implement a consistent self-contained federated messaging fabric.
+However, they provide limited means of implementing custom server-side
+behaviour in Matrix (e.g. gateways, filters, extensible hooks etc). The
+Application Service API (AS API) defines a standard API to allow such
+extensible functionality to be implemented irrespective of the
+underlying homeserver implementation. Application Services Application services are passive and can only observe events from the
+homeserver. They can inject events into rooms they are participating in.
+They cannot prevent events from being sent, nor can they modify the
+content of the event being sent. In order to observe events from a
+homeserver, the homeserver needs to be configured to pass certain types
+of traffic to the application service. This is achieved by manually
+configuring the homeserver with information about the application
+service. Registration Previously, application services could register with a homeserver via
+HTTP APIs. This was removed as it was seen as a security risk. A
+compromised application service could re-register for a global * regex
+and sniff all traffic on the homeserver. To protect against this,
+application services now have to register via configuration files which
+are linked to the homeserver configuration file. The addition of
+configuration files allows homeserver admins to sanity check the
+registration for suspicious regex strings. Application services register &ldquo;namespaces&rdquo; of user IDs, room aliases and
+room IDs. An application service is said to be &ldquo;interested&rdquo; in a given event
+if it matches any of the namespaces. An application service can also state whether they should be the only
+ones who can manage a specified namespace. This is referred to as an
+&ldquo;exclusive&rdquo; namespace. An exclusive namespace prevents humans and other
+application services from creating/deleting entities in that namespace.
+Typically, exclusive namespaces are used when the rooms represent real
+rooms on another service (e.g. IRC). Non-exclusive namespaces are used
+when the application service is merely augmenting the room itself (e.g.
+providing logging or searching facilities). The registration is represented by a series of key-value pairs, which
+is normally encoded as an object in a YAML file. It has the following structure: Registration Registration Name Type Description as_token string Required: A secret token that the application service will use to authenticate requests to the homeserver. hs_token string Required: A secret token that the homeserver will use authenticate requests to the application service. id string Required: A unique, user-defined ID of the application service which will never change. namespaces Namespaces Required: The namespaces that the application service is interested in. protocols [string] The external protocols which the application service provides (e.g. IRC). rate_limited boolean Whether requests from masqueraded users are rate-limited. The sender is excluded. sender_localpart string Required: The localpart of the user associated with the application service. url string Required: The URL for the application service. May include a path after the domain name. Optionally set to null if no traffic is required. Namespaces Name Type Description aliases [Namespace] A list of namespaces defining the room aliases that the application
+service is interested in. All events sent in a room with an alias
+which matches one of the namespaces will be sent to the AS. rooms [Namespace] A list of namespaces defining the room IDs that the application
+service is interested in. All events sent in a room with an ID
+which matches one of the namespaces will be sent to the AS. users [Namespace] A list of namespaces defining the user IDs that the application
+service is interested in. Events will be sent to the AS if a
+local user matching one of the namespaces is the target of the event,
+or is a joined member of the room where the event occurred. Namespace Name Type Description exclusive boolean Required: A true or false value stating whether this application service has exclusive access to events within this namespace. regex string Required: A POSIX regular expression defining which values this namespace includes. Examples { &#34;namespaces&#34; : { &#34;aliases&#34; : [ {} ], &#34;rooms&#34; : [ {} ], &#34;users&#34; : [ {} ] }, &#34;protocols&#34; : [ null ] } Exclusive user and alias namespaces should begin with an underscore
+after the sigil to avoid collisions with other users on the homeserver.
+Application services should additionally attempt to identify the service
+they represent in the reserved namespace. For example, @_irc_.* would
+be a good namespace to register for an application service which deals
+with IRC. An example registration file for an IRC-bridging application service is
+below: id : &#34;IRC Bridge&#34; url : &#34;http://127.0.0.1:1234&#34; as_token : &#34;30c05ae90a248a4188e620216fa72e349803310ec83e2a77b34fe90be6081f46&#34; hs_token : &#34;312df522183efd404ec1cd22d2ffa4bbc76a8c1ccf541dd692eef281356bb74e&#34; sender_localpart : &#34;_irc_bot&#34; # Will result in @_irc_bot:example.org namespaces : users : - exclusive : true regex : &#34;@_irc_bridge_.*&#34; aliases : - exclusive : false regex : &#34;#_irc_bridge_.*&#34; rooms : [] For the users namespace, application services can only register interest in local users (i.e., users whose IDs end with the server_name of the local
+homeserver). Events affecting users on other homeservers are not sent to an application
+service, even if the user happens to match the one of the users namespaces (unless,
+of course, the event affects a room that the application service is interested in
+for another room - for example, because there is another user in the room that the
+application service is interested in). For the rooms and aliases namespaces, all events in a matching room will be
+sent to the application service. If the homeserver in question has multiple application services, each as_token and id MUST be unique per application service as these are
+used to identify the application service. The homeserver MUST enforce
+this. Homeserver -&gt; Application Service API Authorization [Changed in v1.4 ] Homeservers MUST include an Authorization header, containing the hs_token from the application service&rsquo;s registration, when making requests to the
+application service. Application services MUST verify that the provided Bearer token matches their known hs_token , failing the request with
+an M_FORBIDDEN error if it does not match. The format of the Authorization header is similar to the Client-Server API : Bearer TheHSTokenGoesHere . In previous versions of this specification, an access_token query
+parameter was used instead. Servers should only send this query parameter
+if supporting legacy versions of the specification. If sending the query_string , it is encouraged to send it alongside
+the Authorization header for maximum compatibility. Application services should ensure both match if both are provided. Legacy routes Previous drafts of the application service specification had a mix of
+endpoints that have been used in the wild for a significant amount of
+time. The application service specification now defines a version on all
+endpoints to be more compatible with the rest of the Matrix
+specification and the future. Homeservers should attempt to use the specified endpoints first when
+communicating with application services. However, if the application
+service receives an HTTP status code that does not indicate success
+(i.e.: 404, 500, 501, etc) then the homeserver should fall back to the
+older endpoints for the application service. The older endpoints have the exact same request body and response
+format, they just belong at a different path. The equivalent path for
+each is as follows: /_matrix/app/v1/transactions/{txnId} should fall back to /transactions/{txnId} /_matrix/app/v1/users/{userId} should fall back to /users/{userId} /_matrix/app/v1/rooms/{roomAlias} should fall back to /rooms/{roomAlias} /_matrix/app/v1/thirdparty/protocol/{protocol} should fall back to /_matrix/app/unstable/thirdparty/protocol/{protocol} /_matrix/app/v1/thirdparty/user/{user} should fall back to /_matrix/app/unstable/thirdparty/user/{user} /_matrix/app/v1/thirdparty/location/{location} should fall back to /_matrix/app/unstable/thirdparty/location/{location} /_matrix/app/v1/thirdparty/user should fall back to /_matrix/app/unstable/thirdparty/user /_matrix/app/v1/thirdparty/location should fall back to /_matrix/app/unstable/thirdparty/location Homeservers should periodically try again for the newer endpoints
+because the application service may have been updated. Pushing events The application service API provides a transaction API for sending a
+list of events. Each list of events includes a transaction ID, which
+works as follows: Typical
+    HS ---&gt; AS : Homeserver sends events with transaction ID T.
+       &lt;---    : Application Service sends back 200 OK. AS ACK Lost
+    HS ---&gt; AS : Homeserver sends events with transaction ID T.
+       &lt;-/-    : AS 200 OK is lost.
+    HS ---&gt; AS : Homeserver retries with the same transaction ID of T.
+       &lt;---    : Application Service sends back 200 OK. If the AS had processed these
+                 events already, it can NO-OP this request (and it knows if it is the
+                 same events based on the transaction ID). The events sent to the application service should be linearised, as if
+they were from the event stream. The homeserver MUST maintain a queue of
+transactions to send to the application service. If the application
+service cannot be reached, the homeserver SHOULD backoff exponentially
+until the application service is reachable again. As application
+services cannot modify the events in any way, these requests can be
+made without blocking other aspects of the homeserver. Homeservers MUST
+NOT alter (e.g. add more) events they were going to send within that
+transaction ID on retries, as the application service may have already
+processed the events. PUT /_matrix/app/v1/transactions/{txnId} This API is called by the homeserver when it wants to push an event
+(or batch of events) to the application service. Note that the application service should distinguish state events
+from message events via the presence of a state_key , rather than
+via the event type. Rate-limited: No Requires authentication: Yes Request Request parameters path parameters Name Type Description txnId string Required: The transaction ID for this set of events. Homeservers generate
+these IDs and they are used to ensure idempotency of requests. Request body Name Type Description events [ClientEvent] Required: A list of events, formatted as per the Client-Server API. ClientEvent Name Type Description content object Required: The body of this event, as created by the client which sent it. event_id string Required: The globally unique identifier for this event. origin_server_ts integer Required: Timestamp (in milliseconds since the unix epoch) on originating homeserver
+when this event was sent. room_id string Required: The ID of the room associated with this event. sender string Required: Contains the fully-qualified ID of the user who sent this event. state_key string Present if, and only if, this event is a state event. The key making
+this piece of state unique in the room. Note that it is often an empty
+string. State keys starting with an @ are reserved for referencing user IDs, such
+as room members. With the exception of a few events, state events set with a
+given user&rsquo;s ID as the state key MUST only be set by that user. type string Required: The type of the event. unsigned UnsignedData Contains optional extra information about the event. UnsignedData Name Type Description age integer The time in milliseconds that has elapsed since the event was sent. This field is generated by the local homeserver, and may be incorrect if the local time on at least one of the two servers is out of sync, which can cause the age to either be negative or greater than it actually is. prev_content EventContent The previous content for this event. This field is generated
+by the local homeserver, and is only returned if the event is a state event,
+and the client has permission to see the previous content. Changed in v1.2 : Previously, this field was specified at the top level of returned
+events rather than in unsigned (with the exception of the GET .../notifications endpoint), though in practice no known server implementations honoured
+this. redacted_because ClientEvent The event that redacted this event, if any. transaction_id string The client-supplied transaction ID , for example, provided via PUT /_matrix/client/v3/rooms/{roomId}/send/{eventType}/{txnId} ,
+if the client being given the event is the same one which sent it. Request body example { &#34;events&#34; : [ { &#34;content&#34; : { &#34;avatar_url&#34; : &#34;mxc://example.org/SEsfnsuifSDFSSEF&#34; , &#34;displayname&#34; : &#34;Alice Margatroid&#34; , &#34;membership&#34; : &#34;join&#34; , &#34;reason&#34; : &#34;Looking for support&#34; }, &#34;event_id&#34; : &#34;$143273582443PhrSn:example.org&#34; , &#34;origin_server_ts&#34; : 1432735824653 , &#34;room_id&#34; : &#34;!jEsUZKDJdhlrceRyVU:example.org&#34; , &#34;sender&#34; : &#34;@example:example.org&#34; , &#34;state_key&#34; : &#34;@alice:example.org&#34; , &#34;type&#34; : &#34;m.room.member&#34; , &#34;unsigned&#34; : { &#34;age&#34; : 1234 } }, { &#34;content&#34; : { &#34;body&#34; : &#34;This is an example text message&#34; , &#34;format&#34; : &#34;org.matrix.custom.html&#34; , &#34;formatted_body&#34; : &#34;&lt;b&gt;This is an example text message&lt;/b&gt;&#34; , &#34;msgtype&#34; : &#34;m.text&#34; }, &#34;event_id&#34; : &#34;$143273582443PhrSn:example.org&#34; , &#34;origin_server_ts&#34; : 1432735824653 , &#34;room_id&#34; : &#34;!jEsUZKDJdhlrceRyVU:example.org&#34; , &#34;sender&#34; : &#34;@example:example.org&#34; , &#34;type&#34; : &#34;m.room.message&#34; , &#34;unsigned&#34; : { &#34;age&#34; : 1234 } } ] } Responses Status Description 200 The transaction was processed successfully. 200 response {} Querying The application service API includes two querying APIs: for room aliases
+and for user IDs. The application service SHOULD create the queried
+entity if it desires. During this process, the application service is
+blocking the homeserver until the entity is created and configured. If
+the homeserver does not receive a response to this request, the
+homeserver should retry several times before timing out. This should
+result in an HTTP status 408 &ldquo;Request Timeout&rdquo; on the client which
+initiated this request (e.g. to join a room alias). Blocking the homeserver and expecting the application service to create
+the entity using the client-server API is simpler and more flexible than
+alternative methods such as returning an initial sync style JSON blob
+and get the HS to provision the room/user. This also meant that there
+didn&rsquo;t need to be a &ldquo;backchannel&rdquo; to inform the application service
+about information about the entity such as room ID to room alias
+mappings. GET /_matrix/app/v1/users/{userId} This endpoint is invoked by the homeserver on an application service to query
+the existence of a given user ID. The homeserver will only query user IDs
+inside the application service&rsquo;s users namespace. The homeserver will
+send this request when it receives an event for an unknown user ID in
+the application service&rsquo;s namespace, such as a room invite. Rate-limited: No Requires authentication: Yes Request Request parameters path parameters Name Type Description userId string Required: The user ID being queried. Responses Status Description 200 The application service indicates that this user exists. The application
+service MUST create the user using the client-server API. 401 The homeserver has not supplied credentials to the application service.
+Optional error information can be included in the body of this response. 403 The credentials supplied by the homeserver were rejected. 404 The application service indicates that this user does not exist.
+Optional error information can be included in the body of this response. 200 response {} 401 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_UNAUTHORIZED&#34; } 403 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_FORBIDDEN&#34; } 404 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_NOT_FOUND&#34; } GET /_matrix/app/v1/rooms/{roomAlias} This endpoint is invoked by the homeserver on an application service to query
+the existence of a given room alias. The homeserver will only query room
+aliases inside the application service&rsquo;s aliases namespace. The
+homeserver will send this request when it receives a request to join a
+room alias within the application service&rsquo;s namespace. Rate-limited: No Requires authentication: Yes Request Request parameters path parameters Name Type Description roomAlias string Required: The room alias being queried. Responses Status Description 200 The application service indicates that this room alias exists. The
+application service MUST have created a room and associated it with
+the queried room alias using the client-server API. Additional
+information about the room such as its name and topic can be set
+before responding. 401 The homeserver has not supplied credentials to the application service.
+Optional error information can be included in the body of this response. 403 The credentials supplied by the homeserver were rejected. 404 The application service indicates that this room alias does not exist.
+Optional error information can be included in the body of this response. 200 response {} 401 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_UNAUTHORIZED&#34; } 403 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_FORBIDDEN&#34; } 404 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_NOT_FOUND&#34; } Third party networks Application services may declare which protocols they support via their
+registration configuration for the homeserver. These networks are
+generally for third party services such as IRC that the application
+service is managing. Application services may populate a Matrix room
+directory for their registered protocols, as defined in the
+Client-Server API Extensions. Each protocol may have several &ldquo;locations&rdquo; (also known as &ldquo;third party
+locations&rdquo; or &ldquo;3PLs&rdquo;). A location within a protocol is a place in the
+third party network, such as an IRC channel. Users of the third party
+network may also be represented by the application service. Locations and users can be searched by fields defined by the application
+service, such as by display name or other attribute. When clients
+request the homeserver to search in a particular &ldquo;network&rdquo; (protocol),
+the search fields will be passed along to the application service for
+filtering. GET /_matrix/app/v1/thirdparty/location Retrieve an array of third party network locations from a Matrix room
+alias. Rate-limited: No Requires authentication: Yes Request Request parameters query parameters Name Type Description alias string The Matrix room alias to look up. Responses Status Description 200 All found third party locations. 401 The homeserver has not supplied credentials to the application service.
+Optional error information can be included in the body of this response. 403 The credentials supplied by the homeserver were rejected. 404 No mappings were found with the given parameters. 200 response Array of Location . Location Name Type Description alias string Required: An alias for a matrix room. fields object Required: Information used to identify this third party location. protocol string Required: The protocol ID that the third party location is a part of. [ { &#34;alias&#34; : &#34;#freenode_#matrix:matrix.org&#34; , &#34;fields&#34; : { &#34;channel&#34; : &#34;#matrix&#34; , &#34;network&#34; : &#34;freenode&#34; }, &#34;protocol&#34; : &#34;irc&#34; } ] 401 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_UNAUTHORIZED&#34; } 403 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_FORBIDDEN&#34; } 404 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_NOT_FOUND&#34; } GET /_matrix/app/v1/thirdparty/location/{protocol} Retrieve a list of Matrix portal rooms that lead to the matched third party location. Rate-limited: No Requires authentication: Yes Request Request parameters path parameters Name Type Description protocol string Required: The protocol ID. query parameters Name Type Description fields... string One or more custom fields that are passed to the application
+service to help identify the third party location. Responses Status Description 200 At least one portal room was found. 401 The homeserver has not supplied credentials to the application service.
+Optional error information can be included in the body of this response. 403 The credentials supplied by the homeserver were rejected. 404 No mappings were found with the given parameters. 200 response Array of Location . Location Name Type Description alias string Required: An alias for a matrix room. fields object Required: Information used to identify this third party location. protocol string Required: The protocol ID that the third party location is a part of. [ { &#34;alias&#34; : &#34;#freenode_#matrix:matrix.org&#34; , &#34;fields&#34; : { &#34;channel&#34; : &#34;#matrix&#34; , &#34;network&#34; : &#34;freenode&#34; }, &#34;protocol&#34; : &#34;irc&#34; } ] 401 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_UNAUTHORIZED&#34; } 403 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_FORBIDDEN&#34; } 404 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_NOT_FOUND&#34; } GET /_matrix/app/v1/thirdparty/protocol/{protocol} This API is called by the homeserver when it wants to present clients
+with specific information about the various third party networks that
+an application service supports. Rate-limited: No Requires authentication: Yes Request Request parameters path parameters Name Type Description protocol string Required: The protocol ID. Responses Status Description 200 The protocol was found and metadata returned. 401 The homeserver has not supplied credentials to the application service.
+Optional error information can be included in the body of this response. 403 The credentials supplied by the homeserver were rejected. 404 No protocol was found with the given path. 200 response Protocol Name Type Description field_types {string: Field Type} Required: The type definitions for the fields defined in the user_fields and location_fields . Each entry in those arrays MUST have an entry here. The string key for this object is field name itself. May be an empty object if no fields are defined. icon string Required: A content URI representing an icon for the third party protocol. instances [Protocol Instance] Required: A list of objects representing independent instances of configuration.
+For example, multiple networks on IRC if multiple are provided by the
+same application service. location_fields [string] Required: Fields which may be used to identify a third party location. These should be
+ordered to suggest the way that entities may be grouped, where higher
+groupings are ordered first. For example, the name of a network should be
+searched before the name of a channel. user_fields [string] Required: Fields which may be used to identify a third party user. These should be
+ordered to suggest the way that entities may be grouped, where higher
+groupings are ordered first. For example, the name of a network should be
+searched before the nickname of a user. Field Type Name Type Description placeholder string Required: An placeholder serving as a valid example of the field value. regexp string Required: A regular expression for validation of a field&rsquo;s value. This may be relatively
+coarse to verify the value as the application service providing this protocol
+may apply additional validation or filtering. Protocol Instance Name Type Description desc string Required: A human-readable description for the protocol, such as the name. fields object Required: Preset values for fields the client may use to search by. icon string An optional content URI representing the protocol. Overrides the one provided
+at the higher level Protocol object. network_id string Required: A unique identifier across all instances. { &#34;field_types&#34; : { &#34;channel&#34; : { &#34;placeholder&#34; : &#34;#foobar&#34; , &#34;regexp&#34; : &#34;#[^\\s]+&#34; }, &#34;network&#34; : { &#34;placeholder&#34; : &#34;irc.example.org&#34; , &#34;regexp&#34; : &#34;([a-z0-9]+\\.)*[a-z0-9]+&#34; }, &#34;nickname&#34; : { &#34;placeholder&#34; : &#34;username&#34; , &#34;regexp&#34; : &#34;[^\\s#]+&#34; } }, &#34;icon&#34; : &#34;mxc://example.org/aBcDeFgH&#34; , &#34;instances&#34; : [ { &#34;desc&#34; : &#34;Freenode&#34; , &#34;fields&#34; : { &#34;network&#34; : &#34;freenode&#34; }, &#34;icon&#34; : &#34;mxc://example.org/JkLmNoPq&#34; , &#34;network_id&#34; : &#34;freenode&#34; } ], &#34;location_fields&#34; : [ &#34;network&#34; , &#34;channel&#34; ], &#34;user_fields&#34; : [ &#34;network&#34; , &#34;nickname&#34; ] } 401 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_UNAUTHORIZED&#34; } 403 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_FORBIDDEN&#34; } 404 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_NOT_FOUND&#34; } GET /_matrix/app/v1/thirdparty/user Retrieve an array of third party users from a Matrix User ID. Rate-limited: No Requires authentication: Yes Request Request parameters query parameters Name Type Description userid string The Matrix User ID to look up. Responses Status Description 200 An array of third party users. 401 The homeserver has not supplied credentials to the application service.
+Optional error information can be included in the body of this response. 403 The credentials supplied by the homeserver were rejected. 404 No mappings were found with the given parameters. 200 response Array of User . User Name Type Description fields object Required: Information used to identify this third party location. protocol string Required: The protocol ID that the third party location is a part of. userid string Required: A Matrix User ID represting a third party user. [ { &#34;fields&#34; : { &#34;user&#34; : &#34;jim&#34; }, &#34;protocol&#34; : &#34;gitter&#34; , &#34;userid&#34; : &#34;@_gitter_jim:matrix.org&#34; } ] 401 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_UNAUTHORIZED&#34; } 403 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_UNAUTHORIZED&#34; } 404 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_NOT_FOUND&#34; } GET /_matrix/app/v1/thirdparty/user/{protocol} This API is called by the homeserver in order to retrieve a Matrix
+User ID linked to a user on the third party network, given a set of
+user parameters. Rate-limited: No Requires authentication: Yes Request Request parameters path parameters Name Type Description protocol string Required: The protocol ID. query parameters Name Type Description fields... string One or more custom fields that are passed to the application
+service to help identify the user. Responses Status Description 200 The Matrix User IDs found with the given parameters. 401 The homeserver has not supplied credentials to the application service.
+Optional error information can be included in the body of this response. 403 The credentials supplied by the homeserver were rejected. 404 No users were found with the given parameters. 200 response Array of User . User Name Type Description fields object Required: Information used to identify this third party location. protocol string Required: The protocol ID that the third party location is a part of. userid string Required: A Matrix User ID represting a third party user. [ { &#34;fields&#34; : { &#34;user&#34; : &#34;jim&#34; }, &#34;protocol&#34; : &#34;gitter&#34; , &#34;userid&#34; : &#34;@_gitter_jim:matrix.org&#34; } ] 401 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_UNAUTHORIZED&#34; } 403 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_FORBIDDEN&#34; } 404 response Error Name Type Description errcode string Required: An error code. error string A human-readable error message. { &#34;errcode&#34; : &#34;COM.EXAMPLE.MYAPPSERVICE_NOT_FOUND&#34; } Client-Server API Extensions Application services can use a more powerful version of the
+client-server API by identifying itself as an application service to the
+homeserver. Endpoints defined in this section MUST be supported by homeservers in
+the client-server API as accessible only by application services. Identity assertion The client-server API infers the user ID from the access_token provided in every request. To avoid the application service from having
+to keep track of each user&rsquo;s access token, the application service
+should identify itself to the Client-Server API by providing its as_token for the access_token alongside the user the application
+service would like to masquerade as. Inputs: Application service token ( as_token ) User ID in the AS namespace to act as. Notes: This applies to all aspects of the Client-Server API, except for
+Account Management. The as_token is inserted into access_token which is usually
+where the client token is, such as via the query string or Authorization header. This is done on purpose to allow application
+services to reuse client SDKs. The access_token should be supplied through the Authorization header where possible to prevent the token appearing in HTTP request
+logs by accident. The application service may specify the virtual user to act as through
+use of a user_id query string parameter on the request. The user
+specified in the query string must be covered by one of the application
+service&rsquo;s user namespaces. If the parameter is missing, the homeserver
+is to assume the application service intends to act as the user implied
+by the sender_localpart property of the registration. An example request would be: GET /_matrix/client/v3/account/ [email&#160;protected] _irc_user:example.org
+Authorization: Bearer YourApplicationServiceTokenHere Timestamp massaging [Added in v1.3 ] Application services can alter the timestamp associated with an event, allowing
+the application service to better represent the &ldquo;real&rdquo; time an event was sent
+at. While this doesn&rsquo;t affect the server-side ordering of the event, it can allow
+an application service to better represent when an event would have been sent/received
+at, such as in the case of bridges where the remote network might have a slight
+delay and the application service wishes to bridge the proper time onto the message. When authenticating requests as an application service, the caller can append a ts query string argument to change the origin_server_ts of the resulting event. Attempting
+to set the timestamp to anything other than what is accepted by origin_server_ts should
+be rejected by the server as a bad request. When not present, the server&rsquo;s behaviour is unchanged: the local system time of the server
+will be used to provide a timestamp, representing &ldquo;now&rdquo;. The ts query string argument is only valid on the following endpoints: PUT /rooms/{roomId}/send/{eventType}/{txnId} PUT /rooms/{roomId}/state/{eventType}/{stateKey} Other endpoints, such as /kick , do not support ts : instead, callers can use the PUT /state endpoint to mimic the behaviour of the other APIs. Changing the time of an event does not change the server-side (DAG) ordering for the
+event. The event will still be appended at the tip of the DAG as though the timestamp
+was set to &ldquo;now&rdquo;. Future MSCs, like MSC2716 ,
+are expected to provide functionality which can allow DAG order manipulation (for history
+imports and similar behaviour). Server admin style permissions The homeserver needs to give the application service full control over
+its namespace, both for users and for room aliases. This means that the
+AS should be able to manage any users and room alias in its namespace. No additional API
+changes need to be made in order for control of room aliases to be
+granted to the AS. Creation of users needs API changes in order to: Work around captchas. Have a &lsquo;passwordless&rsquo; user. This involves bypassing the registration flows entirely. This is
+achieved by including the as_token on a /register request, along
+with a login type of m.login.application_service to set the desired
+user ID without a password. POST /_matrix/client/v3/register
+Authorization: Bearer YourApplicationServiceTokenHere
+
+Content:
+{
+  type: &quot;m.login.application_service&quot;,
+  username: &quot;_irc_example&quot;
+} Similarly, logging in as users needs API changes in order to allow the AS to
+log in without needing the user&rsquo;s password. This is achieved by including the as_token on a /login request, along with a login type of m.login.application_service : [Added in v1.2 ] POST /_matrix/client/v3/login
+Authorization: Bearer YourApplicationServiceTokenHere
+
+Content:
+{
+  type: &quot;m.login.application_service&quot;,
+  &quot;identifier&quot;: {
+    &quot;type&quot;: &quot;m.id.user&quot;,
+    &quot;user&quot;: &quot;_irc_example&quot;
+  }
+} Application services which attempt to create users or aliases outside of their defined namespaces, or log in as users outside of their defined
+namespaces will receive an error code M_EXCLUSIVE .
+Similarly, normal users who attempt to create users or aliases inside an application service-defined namespace will receive the same M_EXCLUSIVE error code, but only if the application service has
+defined the namespace as exclusive . Using /sync and /events Application services wishing to use /sync or /events from the
+Client-Server API MUST do so with a virtual user (provide a user_id via the query string). It is expected that the application service use
+the transactions pushed to it to handle events rather than syncing with
+the user implied by sender_localpart . Application service room directories Application services can maintain their own room directories for their
+defined third party protocols. These room directories may be accessed by
+clients through additional parameters on the /publicRooms client-server endpoint. PUT /_matrix/client/v3/directory/list/appservice/{networkId}/{roomId} Updates the visibility of a given room on the application service&rsquo;s room
+directory. This API is similar to the room directory visibility API used by clients
+to update the homeserver&rsquo;s more general room directory. This API requires the use of an application service access token ( as_token )
+instead of a typical client&rsquo;s access_token. This API cannot be invoked by
+users who are not identified as application services. Rate-limited: No Requires authentication: Yes Request Request parameters path parameters Name Type Description networkId string Required: The protocol (network) ID to update the room list for. This would
+have been provided by the application service as being listed as
+a supported protocol. roomId string Required: The room ID to add to the directory. Request body Name Type Description visibility enum Required: Whether the room should be visible (public) in the directory
+or not (private). One of: [public, private] . Request body example { &#34;visibility&#34; : &#34;public&#34; } Responses Status Description 200 The room&rsquo;s directory visibility has been updated. 200 response {} Referencing messages from a third party network Application services should include an external_url in the content of events it emits to indicate where the message came from. This
+typically applies to application services that bridge other networks
+into Matrix, such as IRC, where an HTTP URL may be available to
+reference. Clients should provide users with a way to access the external_url if
+it is present. Clients should additionally ensure the URL has a scheme
+of https or http before making use of it. The presence of an external_url on an event does not necessarily mean
+the event was sent from an application service. Clients should be wary
+of the URL contained within, as it may not be a legitimate reference to
+the event&rsquo;s source. &copy; 2022 The Matrix.org Foundation CIC 
