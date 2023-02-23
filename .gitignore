@@ -1,5 +1,6 @@
 NLTK/env/
 NLTK/.idea/
 Google/.idea/
+Google/.vs/
 Google/bin/
-Google/Debug/
+Google/obj/
