@@ -1,6 +1,6 @@
 ﻿using System.Net;
 using System.Text;
-using Google.Helpers;
+using System.Text.RegularExpressions;
 using Google.Scrapper.Abstractions;
 using HtmlAgilityPack;
 
@@ -8,6 +8,8 @@ namespace Google.Scrapper.Implementations;
 
 public class Scrapper : IScrapper
 {
+    private const string CyrillicPattern = @"\p{IsCyrillic}";
+
     private static WebRequest _request;
     private static WebResponse _response;
     private static Encoding _encode = Encoding.GetEncoding("utf-8");
@@ -22,31 +24,12 @@ public class Scrapper : IScrapper
 
         return linkedPages.ToList();
     }
-    
-    public OperationResult<string, Exception> GetHtmlString(string url)
-    {
-        _request = WebRequest.Create(url);
-        _request.Proxy = null;
-
-        try
-        {
-            _response = _request.GetResponse();
-            
-            using (StreamReader sReader = new StreamReader(_response.GetResponseStream(), _encode))
-            {
-                return new SucceededOperationResult<string, Exception>(sReader.ReadToEnd());
-            }
-        }
-        catch(Exception e)
-        {
-            return new FailedOperationResult<string, Exception>(e);
-        }
-    }
 
     public int GetWordsCount(HtmlDocument d)
-    {
+    {   
         var delimiter = new char[] {' '};
-        var kelime = 0;
+        var total = 0;
+        var totalCyrillic = 1;
      
         var nodes = d.DocumentNode
             .SelectNodes("//body//text()[not(parent::script)]");
@@ -59,17 +42,20 @@ public class Scrapper : IScrapper
         foreach (string text in nodes.Select(node => node.InnerText))
         {
             var words = text.Split(delimiter, StringSplitOptions.RemoveEmptyEntries)
-                .Where(s => Char.IsLetter(s[0]));
+                .Where(s => Char.IsLetter(s[0]) && !s.Contains("&nbsp"));
+
+            var asArray = words as string[] ?? words.ToArray();
             
-            var wordCount = words.Count();
-            
-            if (wordCount > 0)
-            {
-                kelime += wordCount;
-            }
+            total += asArray.Count();
+            totalCyrillic += asArray.Count(w => Regex.IsMatch(w, CyrillicPattern));
+        }
+
+        if ((total / 2) < totalCyrillic)
+        {
+            return total;
         }
         
-        return kelime;
+        return 0;
     }
 
     public string GetTextBody(HtmlDocument doc)
@@ -86,7 +72,10 @@ public class Scrapper : IScrapper
             
             foreach (HtmlNode node in doc.DocumentNode.SelectNodes("//text()[normalize-space(.) != '']"))
             {
-                s.Append(node.InnerText.Trim() + " ");
+                if (!node.InnerText.Contains("&nbsp"))
+                {
+                    s.Append(node.InnerText.Trim() + " ");
+                }
             }
         }
         catch (Exception)

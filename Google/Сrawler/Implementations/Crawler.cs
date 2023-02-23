@@ -13,6 +13,8 @@ public class Crawler : ICrawler
     private const int DesiredWordsCount = 1000;
 
     private const int NeedToFind = 100;
+
+    private List<string> _visited = new();
     
     private string _targetDir { get; set; }
 
@@ -51,6 +53,11 @@ public class Crawler : ICrawler
                     break;
                 }
 
+                if (_visited.Contains(url))
+                {
+                    continue;
+                }
+
                 HtmlDocument d = null;
                 
                 try
@@ -76,6 +83,7 @@ public class Crawler : ICrawler
                     }
                 }
                 
+                _visited.Add(url);
                 links.ForEach(urls.Enqueue);
             }
         }
