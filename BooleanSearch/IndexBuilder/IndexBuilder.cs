@@ -5,9 +5,9 @@ namespace BooleanSearch.IndexBuilder;
 
 public class IndexBuilder 
 {
-    public void Build(string sourceFilesDir, string outputDir)
+    public List<Dictionary<string, string>> Build(string sourceFilesDir, string outputDir)
     {
-        var index = new Dictionary<string, string>();
+        var res = new List<Dictionary<string, string>>();
         var pos = 0;
 
         try
@@ -20,6 +20,8 @@ public class IndexBuilder
                            new FileStream(f, FileMode.Open),
                            Encoding.UTF8))
                 {
+                    var index = new Dictionary<string, string>();
+                    
                     foreach (var token in sr.ReadLine().Split(' '))
                     {
                         pos++;
@@ -34,21 +36,22 @@ public class IndexBuilder
                             index.Add(token, newPos);
                         }
                     }
+                    
+                    res.Add(index);
                 }
 
-                using (var sr = new StreamWriter(File.Create(Path.Combine(outputDir, Path.GetFileName(f).Replace(".txt", ".json"))),
-                           Encoding.UTF8))
+                /*using (var sr = new StreamWriter(File.Create(Path.Combine(outputDir, Path.GetFileName(f).Replace(".txt", ".json")))))
                 {
                     sr.Write(JsonConvert.SerializeObject(index));
-                }
-
-                pos = 0;
-                index = new Dictionary<string, string>();
+                }*/
             }
         }
         catch (Exception e)
         {
             Console.WriteLine(e);
+            return new List<Dictionary<string, string>>();
         }
+        
+        return res;
     }
 }

@@ -2,7 +2,6 @@
 
 namespace BooleanSearch
 {
-    // new StreamReader(new FileStream(@"C:\REPOS\UNI\InformationSearch\NLTK\Results\1.txt", FileMode.Open), Encoding.UTF8).ReadLine()
     class Program
     {
         private const string IndexFolderName = "Index";
@@ -10,10 +9,15 @@ namespace BooleanSearch
         
         static void Main(string[] args)
         {
-            new IndexBuilder.IndexBuilder()
+            var indexes = new IndexBuilder.IndexBuilder()
                 .Build(
                     ScanResultsPath, 
                     Path.Combine(Directory.GetCurrentDirectory(), IndexFolderName));
+
+            var engine = new BooleanSearch.BooleanSearch(indexes);
+            var res = engine.Search("пельмен AND браузер AND doordash");
+            
+            Console.WriteLine(string.Join("\n", res));
         }
     }
 }
