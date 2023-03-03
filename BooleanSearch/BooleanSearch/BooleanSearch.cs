@@ -2,6 +2,7 @@
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using BooleanSearch.IndexBuilder;
 using Newtonsoft.Json;
 
 namespace BooleanSearch.BooleanSearch;
@@ -10,10 +11,10 @@ public class BooleanSearch
 {
     private List<string> IndexesPath { get; set; }
 
-    private List<Dictionary<string, string>> Indexes;
+    private List<IndexDto> Indexes;
         
 
-    public BooleanSearch(List<Dictionary<string, string>> indexes)
+    public BooleanSearch(List<IndexDto> indexes)
     {
         Indexes = indexes;
     }
@@ -40,7 +41,7 @@ public class BooleanSearch
         {
             i++;
             bool res;
-            var tokens = index.Keys.ToList();
+            var tokens = index.Index.Keys.ToList();
             
             res = q1.Not ? !tokens.Contains(q1.Term) : tokens.Contains(q1.Term);
 
@@ -64,7 +65,7 @@ public class BooleanSearch
 
             if (res)
             {
-                l.Add($"{i}.txt");
+                l.Add(index.path);
             }
         }
 

@@ -3,11 +3,13 @@ using Newtonsoft.Json;
 
 namespace BooleanSearch.IndexBuilder;
 
+public record struct IndexDto(string path, Dictionary<string, string> Index);
+
 public class IndexBuilder 
 {
-    public List<Dictionary<string, string>> Build(string sourceFilesDir, string outputDir)
+    public List<IndexDto> Build(string sourceFilesDir, string outputDir)
     {
-        var res = new List<Dictionary<string, string>>();
+        var res = new List<IndexDto>();
         var pos = 0;
 
         try
@@ -37,7 +39,7 @@ public class IndexBuilder
                         }
                     }
                     
-                    res.Add(index);
+                    res.Add(new IndexDto(f, index));
                 }
 
                 /*using (var sr = new StreamWriter(File.Create(Path.Combine(outputDir, Path.GetFileName(f).Replace(".txt", ".json")))))
@@ -49,7 +51,7 @@ public class IndexBuilder
         catch (Exception e)
         {
             Console.WriteLine(e);
-            return new List<Dictionary<string, string>>();
+            return new List<IndexDto>();
         }
         
         return res;
