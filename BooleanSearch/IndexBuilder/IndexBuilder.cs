@@ -1,59 +1,41 @@
 ﻿using System.Text;
-using Newtonsoft.Json;
 
 namespace BooleanSearch.IndexBuilder;
 
-public record struct IndexDto(string path, Dictionary<string, string> Index);
-
 public class IndexBuilder 
 {
-    public List<IndexDto> Build(string sourceFilesDir, string outputDir)
+    public Dictionary<string, List<string>> Build(string sourceFilesDir)
     {
-        var res = new List<IndexDto>();
-        var pos = 0;
-
+        var index = new Dictionary<string, List<string>>();
+        var files = Directory.GetFiles(sourceFilesDir);
+        
         try
         {
-            var files = Directory.GetFiles(sourceFilesDir);
-
             foreach (var f in files)
             {
                 using (var sr = new StreamReader(
                            new FileStream(f, FileMode.Open),
                            Encoding.UTF8))
                 {
-                    var index = new Dictionary<string, string>();
-                    
                     foreach (var token in sr.ReadLine().Split(' '))
                     {
-                        pos++;
-                        var newPos = $" (1, {pos})";
-
                         if (index.ContainsKey(token))
                         {
-                            index[token] += newPos;
+                            index[token].Add(f);
                         }
                         else
                         {
-                            index.Add(token, newPos);
+                            index.Add(token, new List<string> { f });
                         }
                     }
-                    
-                    res.Add(new IndexDto(f, index));
                 }
-
-                /*using (var sr = new StreamWriter(File.Create(Path.Combine(outputDir, Path.GetFileName(f).Replace(".txt", ".json")))))
-                {
-                    sr.Write(JsonConvert.SerializeObject(index));
-                }*/
             }
         }
         catch (Exception e)
         {
             Console.WriteLine(e);
-            return new List<IndexDto>();
         }
         
-        return res;
+        return index;
     }
 }
